@@ -9,20 +9,17 @@ function isValidYouTubeUrl(url: string) {
 export default function Home() {
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
-  const [result, setResult] = useState("");
-  const [transcript, setTranscript] = useState("");
+  const [moment, setMoment] = useState<{ startTime: number; endTime: number; hookTitle: string } | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function handleGenerate() {
     if (!isValidYouTubeUrl(url)) {
       setError("Please enter a valid YouTube URL.");
-      setResult("");
-      setTranscript("");
+      setMoment(null);
       return;
     }
     setError("");
-    setResult("");
-    setTranscript("");
+    setMoment(null);
     setLoading(true);
 
     try {
@@ -35,8 +32,7 @@ export default function Home() {
       if (!response.ok) {
         setError(data.error || "Something went wrong.");
       } else {
-        setResult(data.message);
-        setTranscript(data.transcriptText || "");
+        setMoment(data.moment);
       }
     } catch (err) {
       setError("Could not reach the server.");
@@ -69,10 +65,12 @@ export default function Home() {
         </button>
       </div>
       {error && <p className="text-sm text-red-500">{error}</p>}
-      {result && <p className="text-sm text-green-600">{result}</p>}
-      {transcript && (
-        <div className="w-full max-w-md rounded-md border border-gray-200 p-3 text-sm text-gray-700 max-h-64 overflow-y-auto">
-          {transcript}
+      {moment && (
+        <div className="w-full max-w-md rounded-md border border-gray-200 p-4 text-sm">
+          <p className="font-semibold">{moment.hookTitle}</p>
+          <p className="text-gray-500">
+            {moment.startTime}s – {moment.endTime}s
+          </p>
         </div>
       )}
 
