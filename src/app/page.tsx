@@ -9,14 +9,23 @@ function isValidYouTubeUrl(url: string) {
 export default function Home() {
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
+  const [result, setResult] = useState("");
 
-  function handleGenerate() {
+  async function handleGenerate() {
     if (!isValidYouTubeUrl(url)) {
       setError("Please enter a valid YouTube URL.");
+      setResult("");
       return;
     }
     setError("");
-    alert(`Would process: ${url}`);
+
+    const response = await fetch("/api/process", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    const data = await response.json();
+    setResult(data.message + ": " + data.url);
   }
 
   return (
@@ -42,6 +51,7 @@ export default function Home() {
         </button>
       </div>
       {error && <p className="text-sm text-red-500">{error}</p>}
+      {result && <p className="text-sm text-green-600">{result}</p>}
 
       <div className="flex items-center gap-2 text-sm text-gray-400">
         <div className="h-px w-16 bg-gray-200" />
