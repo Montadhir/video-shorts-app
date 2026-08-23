@@ -10,6 +10,7 @@ export default function Home() {
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
   const [result, setResult] = useState("");
+  const [loading, setLoading] = useState(false);
 
   async function handleGenerate() {
     if (!isValidYouTubeUrl(url)) {
@@ -18,14 +19,26 @@ export default function Home() {
       return;
     }
     setError("");
+    setResult("");
+    setLoading(true);
 
-    const response = await fetch("/api/process", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
-    });
-    const data = await response.json();
-    setResult(data.message + ": " + data.url);
+    try {
+      const response = await fetch("/api/process", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || "Something went wrong.");
+      } else {
+        setResult(data.message);
+      }
+    } catch (err) {
+      setError("Could not reach the server.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -45,9 +58,10 @@ export default function Home() {
         />
         <button
           onClick={handleGenerate}
-          className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white"
+          disabled={loading}
+          className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
         >
-          Generate
+          {loading ? "Downloading..." : "Generate"}
         </button>
       </div>
       {error && <p className="text-sm text-red-500">{error}</p>}
