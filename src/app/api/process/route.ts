@@ -50,7 +50,6 @@ async function transcribeAudio(uploadUrl: string) {
 }
 
 async function selectBestMoment(words: { text: string; start: number; end: number }[]) {
-  // words[].start/end are in milliseconds from AssemblyAI
   const transcriptWithTimestamps = words
     .map((w) => `[${(w.start / 1000).toFixed(1)}s] ${w.text}`)
     .join(" ");
@@ -77,23 +76,40 @@ ${transcriptWithTimestamps}`,
   return JSON.parse(raw);
 }
 
+async function renderClip(
+  videoPath: string,
+  startTime: number,
+  endTime: number,
+  outputPath: string
+) {
+  const duration = endTime - startTime;
+  // Cut to the selected window, re-encode, crop/scale to a centered 9:16 vertical frame.
+  await runCommand("ffmpeg", [
+    "-i", videoPath,
+    "-ss", String(startTime),
+    "-t", String(duration),
+    "-vf", "crop=ih*9/16:ih,scale=1080:1920",
+    "-c:v", "libx264",
+    "-preset", "fast",
+    "-c:a", "aac",
+    outputPath,
+  ]);
+}
+
 export async function POST(request: Request) {
   const body = await request.json();
   const { url } = body;
 
   if (!url) return Response.json({ error: "No URL provided" }, { status: 400 });
-  if (!ASSEMBLYAI_API_KEY) {
-    return Response.json({ error: "Missing ASSEMBLYAI_API_KEY in .env.local" }, { status: 500 });
-  }
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return Response.json({ error: "Missing ANTHROPIC_API_KEY in .env.local" }, { status: 500 });
-  }
+  if (!ASSEMBLYAI_API_KEY) return Response.json({ error: "Missing ASSEMBLYAI_API_KEY in .env.local" }, { status: 500 });
+  if (!process.env.ANTHROPIC_API_KEY) return Response.json({ error: "Missing ANTHROPIC_API_KEY in .env.local" }, { status: 500 });
 
   if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR);
 
   const videoId = Date.now().toString();
   const videoPath = path.join(DOWNLOADS_DIR, `${videoId}.mp4`);
   const audioPath = path.join(DOWNLOADS_DIR, `${videoId}.wav`);
+  const clipPath = path.join(DOWNLOADS_DIR, `${videoId}_clip.mp4`);
 
   try {
     console.log("Downloading video...");
@@ -114,13 +130,17 @@ export async function POST(request: Request) {
 
     console.log("Asking Claude to pick the best moment...");
     const moment = await selectBestMoment(transcript.words);
-
     console.log("Selected moment:", moment);
 
+    console.log("Rendering vertical clip...");
+    await renderClip(videoPath, moment.startTime, moment.endTime, clipPath);
+    console.log("Clip rendered:", clipPath);
+
     return Response.json({
-      message: "Best moment selected",
+      message: "Clip rendered successfully",
       videoPath,
       audioPath,
+      clipPath,
       transcriptText: transcript.text,
       moment,
     });
