@@ -4,6 +4,23 @@ import fs from "fs";
 
 const DOWNLOADS_DIR = path.join(process.cwd(), "downloads");
 
+function runCommand(command: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(command, args);
+    let stderr = "";
+    proc.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(stderr));
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
 export async function POST(request: Request) {
   const body = await request.json();
   const { url } = body;
@@ -16,26 +33,40 @@ export async function POST(request: Request) {
     fs.mkdirSync(DOWNLOADS_DIR);
   }
 
-  const outputTemplate = path.join(DOWNLOADS_DIR, "%(id)s.%(ext)s");
+  const videoId = Date.now().toString();
+  const videoPath = path.join(DOWNLOADS_DIR, `${videoId}.mp4`);
+  const audioPath = path.join(DOWNLOADS_DIR, `${videoId}.wav`);
 
-  return new Promise((resolve) => {
-    const ytdlp = spawn("yt-dlp", ["-f", "mp4", "-o", outputTemplate, url]);
+  try {
+    console.log("Downloading video...");
+    await runCommand("yt-dlp", [
+      "-f", "bestvideo+bestaudio",
+      "--merge-output-format", "mp4",
+      "-o", videoPath,
+      url,
+    ]);
 
-    let stderr = "";
-    ytdlp.stderr.on("data", (data) => {
-      stderr += data.toString();
+    console.log("Extracting audio...");
+    await runCommand("ffmpeg", [
+      "-i", videoPath,
+      "-vn",
+      "-acodec", "pcm_s16le",
+      "-ar", "16000",
+      "-ac", "1",
+      audioPath,
+    ]);
+
+    console.log("Audio extraction complete:", audioPath);
+    return Response.json({
+      message: "Video downloaded and audio extracted successfully",
+      videoPath,
+      audioPath,
     });
-
-    ytdlp.on("close", (code) => {
-      if (code !== 0) {
-        console.error("yt-dlp failed:", stderr);
-        resolve(
-          Response.json({ error: "Download failed", details: stderr }, { status: 500 })
-        );
-        return;
-      }
-      console.log("Download complete for:", url);
-      resolve(Response.json({ message: "Video downloaded successfully", url }));
-    });
-  });
+  } catch (err) {
+    console.error("Pipeline failed:", err);
+    return Response.json(
+      { error: "Processing failed", details: String(err) },
+      { status: 500 }
+    );
+  }
 }
