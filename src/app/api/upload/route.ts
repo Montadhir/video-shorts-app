@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { createJob, updateJob } from "@/lib/jobs";
 import { runPipeline } from "@/lib/pipeline";
+import { takeJobSlot } from "@/lib/limits";
 
 const DOWNLOADS_DIR = path.join(process.cwd(), "downloads");
 const ALLOWED_EXTENSIONS = ["mp4", "mov", "webm", "mkv", "m4v"];
@@ -37,6 +38,9 @@ export async function POST(request: Request) {
   }
   if (!process.env.ANTHROPIC_API_KEY) {
     return Response.json({ error: "Missing ANTHROPIC_API_KEY in .env.local" }, { status: 500 });
+  }
+  if (!takeJobSlot()) {
+    return Response.json({ error: "Daily limit reached. Try again tomorrow." }, { status: 429 });
   }
 
   if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR);

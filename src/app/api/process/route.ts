@@ -1,5 +1,6 @@
 import { createJob, updateJob } from "@/lib/jobs";
 import { runPipeline } from "@/lib/pipeline";
+import { takeJobSlot } from "@/lib/limits";
 
 // Only plain YouTube links get through (this also stops anything odd reaching yt-dlp)
 function isValidYouTubeUrl(url: string) {
@@ -23,11 +24,14 @@ export async function POST(request: Request) {
   if (!process.env.ANTHROPIC_API_KEY) {
     return Response.json({ error: "Missing ANTHROPIC_API_KEY in .env.local" }, { status: 500 });
   }
+  if (!takeJobSlot()) {
+    return Response.json({ error: "Daily limit reached. Try again tomorrow." }, { status: 429 });
+  }
 
   const job = createJob();
 
   // Start the work in the background and answer right away; the page checks progress via /api/jobs/<id>
-   runPipeline(job.id, { url }).catch((err) => {
+  runPipeline(job.id, { url }).catch((err) => {
     console.error("Unexpected pipeline error:", err);
     updateJob(job.id, { status: "failed", stage: "Failed", error: "Something went wrong." });
   });
