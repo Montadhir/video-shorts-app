@@ -22,6 +22,26 @@ export default function Home() {
   const [clips, setClips] = useState<Clip[]>([]);
   const [loading, setLoading] = useState(false);
 
+    // Checks on a job every 2 seconds until it finishes. Used by both YouTube and upload.
+  async function followJob(jobId: string) {
+    while (true) {
+      await sleep(2000);
+      const response = await fetch(`/api/jobs/${jobId}`);
+      const job = await response.json();
+      if (!response.ok) {
+        setError(job.error || "Lost track of the job.");
+        return;
+      }
+      setStage(job.stage);
+      setClips(job.clips);
+      if (job.status === "failed") {
+        setError(job.error || "Processing failed.");
+        return;
+      }
+      if (job.status === "done") return;
+    }
+  }
+
   async function handleGenerate() {
     if (!isValidYouTubeUrl(url)) {
       setError("Please enter a valid YouTube URL.");
@@ -33,7 +53,6 @@ export default function Home() {
     setLoading(true);
 
     try {
-      // Start the job; the server answers right away with an id
       const startResponse = await fetch("/api/process", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -44,24 +63,37 @@ export default function Home() {
         setError(startData.error || "Something went wrong.");
         return;
       }
+      await followJob(startData.jobId);
+    } catch {
+      setError("Could not reach the server.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
-      // Then check on it every 2 seconds. Clips show up here as soon as each one is ready.
-      while (true) {
-        await sleep(2000);
-        const response = await fetch(`/api/jobs/${startData.jobId}`);
-        const job = await response.json();
-        if (!response.ok) {
-          setError(job.error || "Lost track of the job.");
-          break;
-        }
-        setStage(job.stage);
-        setClips(job.clips);
-        if (job.status === "failed") {
-          setError(job.error || "Processing failed.");
-          break;
-        }
-        if (job.status === "done") break;
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // lets you pick the same file again later
+    if (!file) return;
+
+    setError("");
+    setClips([]);
+    setStage("Uploading the video...");
+    setLoading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const startResponse = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const startData = await startResponse.json();
+      if (!startResponse.ok) {
+        setError(startData.error || "Something went wrong.");
+        return;
       }
+      await followJob(startData.jobId);
     } catch {
       setError("Could not reach the server.");
     } finally {
@@ -130,7 +162,13 @@ export default function Home() {
 
       <label className="flex w-full max-w-md cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-gray-300 px-3 py-6 text-sm text-gray-500 hover:border-gray-400">
         <span>Click to upload a video file</span>
-        <input type="file" accept="video/*" className="hidden" />
+        <input
+          type="file"
+          accept="video/*"
+          className="hidden"
+          onChange={handleUpload}
+          disabled={loading}
+        /> 
       </label>
     </main>
   );

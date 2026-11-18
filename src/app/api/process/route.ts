@@ -27,7 +27,7 @@ export async function POST(request: Request) {
   const job = createJob();
 
   // Start the work in the background and answer right away; the page checks progress via /api/jobs/<id>
-  runPipeline(job.id, url).catch((err) => {
+   runPipeline(job.id, { url }).catch((err) => {
     console.error("Unexpected pipeline error:", err);
     updateJob(job.id, { status: "failed", stage: "Failed", error: "Something went wrong." });
   });

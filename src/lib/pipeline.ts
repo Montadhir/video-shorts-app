@@ -148,21 +148,28 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 // The whole job: download -> audio -> transcript -> pick moments -> render each clip.
 // Progress is written to the job as it goes, so the page can show it.
-export async function runPipeline(jobId: string, url: string): Promise<void> {
+export async function runPipeline(
+  jobId: string,
+  source: { url: string } | { filePath: string }
+): Promise<void> {
   if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR);
 
   const videoId = Date.now().toString();
-  const videoPath = path.join(DOWNLOADS_DIR, `${videoId}.mp4`);
+  // For an upload, the video is already on disk; for YouTube it gets downloaded to this path
+  const videoPath =
+    "filePath" in source ? source.filePath : path.join(DOWNLOADS_DIR, `${videoId}.mp4`);
   const audioPath = path.join(DOWNLOADS_DIR, `${videoId}.wav`);
 
   try {
-    updateJob(jobId, { stage: "Downloading the video..." });
-    await runCommand("yt-dlp", [
-      "-f", "bestvideo+bestaudio",
-      "--merge-output-format", "mp4",
-      "-o", videoPath,
-      url,
-    ]);
+    if ("url" in source) {
+      updateJob(jobId, { stage: "Downloading the video..." });
+      await runCommand("yt-dlp", [
+        "-f", "bestvideo+bestaudio",
+        "--merge-output-format", "mp4",
+        "-o", videoPath,
+        source.url,
+      ]);
+    }
 
     updateJob(jobId, { stage: "Extracting the audio..." });
     await runCommand("ffmpeg", [
