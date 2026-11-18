@@ -2,11 +2,49 @@ import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
 import Anthropic from "@anthropic-ai/sdk";
-import { addClip, updateJob } from "@/lib/jobs";
+import { updateJob, type JobClip } from "@/lib/jobs";
 import { renderClipWithLayout } from "@/lib/reframe";
 import { cleanMoments, formatTranscript, parseMoments, type Moment, type Word } from "@/lib/moments";
 
 const DOWNLOADS_DIR = path.join(process.cwd(), "downloads");
+const MAX_FILE_AGE_MS = 24 * 60 * 60 * 1000; // finished clips are kept for 24 hours
+
+// Delete anything in downloads older than 24 hours (old clips and leftovers from crashed jobs)
+// Only files that look like our own temporary or output files get swept.
+// Everything else in downloads (faces.json, the faces_debug folders, anything you add) is left alone.
+const SWEEPABLE = /^(\d|upload_).*\.(mp4|wav|ass)$/;
+
+// Delete sweepable files older than 24 hours (old clips and leftovers from crashed jobs)
+function deleteOldFiles() {
+  const now = Date.now();
+  for (const name of fs.readdirSync(DOWNLOADS_DIR)) {
+    if (!SWEEPABLE.test(name)) continue;
+    const file = path.join(DOWNLOADS_DIR, name);
+    try {
+      if (now - fs.statSync(file).mtimeMs > MAX_FILE_AGE_MS) fs.rmSync(file, { force: true });
+    } catch (err) {
+      console.error("Could not delete old file:", file, err);
+    }
+  }
+}
+
+// Delete a job's temporary files: the big source video, the audio, and the caption files.
+// The finished clips (…_clip1.mp4 and so on) are kept.
+function cleanupTempFiles(videoPath: string, audioPath: string, videoId: string) {
+  const temp = [videoPath, audioPath];
+  for (const name of fs.readdirSync(DOWNLOADS_DIR)) {
+    if (name.startsWith(`${videoId}_`) && name.endsWith(".ass")) {
+      temp.push(path.join(DOWNLOADS_DIR, name));
+    }
+  }
+  for (const file of temp) {
+    try {
+      fs.rmSync(file, { force: true });
+    } catch (err) {
+      console.error("Could not delete temp file:", file, err);
+    }
+  }
+}
 
 function runCommand(command: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -153,6 +191,7 @@ export async function runPipeline(
   source: { url: string } | { filePath: string }
 ): Promise<void> {
   if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR);
+  deleteOldFiles();
 
   const videoId = Date.now().toString();
   // For an upload, the video is already on disk; for YouTube it gets downloaded to this path
@@ -186,40 +225,62 @@ export async function runPipeline(
     const moments = await selectMoments(words);
     console.log("Selected moments:", moments);
 
-    let rendered = 0;
-    for (let i = 0; i < moments.length; i++) {
-      const moment = moments[i];
-      updateJob(jobId, { stage: `Rendering clip ${i + 1} of ${moments.length}...` });
+    // Render up to 2 clips at the same time. Results are stored by position,
+    // so the clips stay in "best first" order no matter which finishes first.
+    const CONCURRENCY = 2;
+    const results: (JobClip | undefined)[] = new Array(moments.length).fill(undefined);
+    let nextIndex = 0;
+    let finished = 0;
 
-      const clipName = `${videoId}_clip${i + 1}.mp4`;
-      const captionsPath = path.join(DOWNLOADS_DIR, `${videoId}_${i + 1}.ass`);
-      try {
-        generateCaptionsFile(words, moment.startTime, moment.endTime, captionsPath);
-        await renderClipWithLayout(
-          videoPath,
-          moment.startTime,
-          moment.endTime,
-          captionsPath,
-          path.join(DOWNLOADS_DIR, clipName)
-        );
-        addClip(jobId, {
-          clipName,
-          hookTitle: moment.hookTitle,
-          startTime: moment.startTime,
-          endTime: moment.endTime,
+    updateJob(jobId, { stage: `Rendering clips (0 of ${moments.length} done)...` });
+
+    const worker = async () => {
+      while (nextIndex < moments.length) {
+        const i = nextIndex++;
+        const moment = moments[i];
+        const clipName = `${videoId}_clip${i + 1}.mp4`;
+        const captionsPath = path.join(DOWNLOADS_DIR, `${videoId}_${i + 1}.ass`);
+        try {
+          generateCaptionsFile(words, moment.startTime, moment.endTime, captionsPath);
+          await renderClipWithLayout(
+            videoPath,
+            moment.startTime,
+            moment.endTime,
+            captionsPath,
+            path.join(DOWNLOADS_DIR, clipName)
+          );
+          results[i] = {
+            clipName,
+            hookTitle: moment.hookTitle,
+            startTime: moment.startTime,
+            endTime: moment.endTime,
+          };
+        } catch (err) {
+          // One bad clip shouldn't lose the others
+          console.error(`Clip ${i + 1} failed:`, err);
+        }
+        finished++;
+        updateJob(jobId, {
+          stage: `Rendering clips (${finished} of ${moments.length} done)...`,
+          clips: results.filter((c): c is JobClip => c !== undefined),
         });
-        rendered++;
-      } catch (err) {
-        // One bad clip shouldn't lose the others
-        console.error(`Clip ${i + 1} failed:`, err);
       }
-    }
-    if (rendered === 0) throw new Error("None of the clips could be rendered.");
+    };
 
+    await Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, moments.length) }, () => worker())
+    );
+
+    const rendered = results.filter(Boolean).length;
+    if (rendered === 0) throw new Error("None of the clips could be rendered.");
     updateJob(jobId, { status: "done", stage: "Done" });
   } catch (err) {
     console.error("Pipeline failed:", err);
     const message = err instanceof Error ? err.message : String(err);
     updateJob(jobId, { status: "failed", stage: "Failed", error: message.slice(-300) });
+  } finally {
+    // Runs whether the job succeeded or failed
+    cleanupTempFiles(videoPath, audioPath, videoId);
   }
 }
+
