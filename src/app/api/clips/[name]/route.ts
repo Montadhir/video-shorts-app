@@ -10,8 +10,8 @@ export async function GET(
 ) {
   const { name } = await params;
 
-  // Only allow plain clip filenames like 1234567890_clip.mp4 (blocks path tricks)
-  if (!/^\d+_clip\.mp4$/.test(name)) {
+  // Only allow plain clip filenames like 1234567890_clip1.mp4 (blocks path tricks)
+  if (!/^\d+_clip\d*\.mp4$/.test(name)) {
     return Response.json({ error: "Invalid clip name" }, { status: 400 });
   }
 
