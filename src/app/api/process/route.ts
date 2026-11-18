@@ -2,6 +2,7 @@ import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
 import Anthropic from "@anthropic-ai/sdk";
+import { renderClipWithLayout } from "@/lib/reframe";
 
 const DOWNLOADS_DIR = path.join(process.cwd(), "downloads");
 const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY;
@@ -182,7 +183,7 @@ export async function POST(request: Request) {
     generateCaptionsFile(transcript.words, moment.startTime, moment.endTime, captionsPath);
 
     console.log("Rendering vertical clip with captions...");
-    await renderClip(videoPath, moment.startTime, moment.endTime, captionsPath, clipPath);
+    await renderClipWithLayout(videoPath, moment.startTime, moment.endTime, captionsPath, clipPath);
     console.log("Clip rendered:", clipPath);
 
     return Response.json({
