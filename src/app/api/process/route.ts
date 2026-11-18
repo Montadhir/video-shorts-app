@@ -187,11 +187,10 @@ export async function POST(request: Request) {
 
     return Response.json({
       message: "Clip rendered successfully with captions",
-      videoPath,
-      clipPath,
-      transcriptText: transcript.text,
+      clipName: path.basename(clipPath),
       moment,
-    });
+    }); 
+
   } catch (err) {
     console.error("Pipeline failed:", err);
     return Response.json({ error: "Processing failed", details: String(err) }, { status: 500 });

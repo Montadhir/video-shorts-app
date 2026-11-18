@@ -9,17 +9,18 @@ function isValidYouTubeUrl(url: string) {
 export default function Home() {
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
-  const [moment, setMoment] = useState<{ startTime: number; endTime: number; hookTitle: string } | null>(null);
+  const [clipName, setClipName] = useState("");
+  const [hookTitle, setHookTitle] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function handleGenerate() {
     if (!isValidYouTubeUrl(url)) {
       setError("Please enter a valid YouTube URL.");
-      setMoment(null);
+      setClipName("");
       return;
     }
     setError("");
-    setMoment(null);
+    setClipName("");
     setLoading(true);
 
     try {
@@ -32,7 +33,8 @@ export default function Home() {
       if (!response.ok) {
         setError(data.error || "Something went wrong.");
       } else {
-        setMoment(data.moment);
+        setClipName(data.clipName);
+        setHookTitle(data.moment?.hookTitle || "");
       }
     } catch (err) {
       setError("Could not reach the server.");
@@ -65,12 +67,21 @@ export default function Home() {
         </button>
       </div>
       {error && <p className="text-sm text-red-500">{error}</p>}
-      {moment && (
-        <div className="w-full max-w-md rounded-md border border-gray-200 p-4 text-sm">
-          <p className="font-semibold">{moment.hookTitle}</p>
-          <p className="text-gray-500">
-            {moment.startTime}s – {moment.endTime}s
-          </p>
+
+      {clipName && (
+        <div className="flex w-full max-w-xs flex-col items-center gap-3">
+          {hookTitle && <p className="text-center font-semibold">{hookTitle}</p>}
+          <video
+            src={`/api/clips/${clipName}`}
+            controls
+            className="w-full rounded-md bg-black"
+          />
+          <a
+            href={`/api/clips/${clipName}?download=1`}
+            className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white"
+          >
+            Download MP4
+          </a>
         </div>
       )}
 
